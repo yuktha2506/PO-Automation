@@ -1,0 +1,5 @@
+{
+  "name": "PO Automation System 1",
+  "description": "A web application to automate extracted data from Purchase Order PDFs to Excel using OCR.",
+  "requestFramePermissions": []
+}
