@@ -8,7 +8,24 @@ interface ExcelExportOptions {
   mode?: ExcelExportMode;
 }
 
+const TAX_RATE = 0.18;
+
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const toSafeNumber = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const toMoney = (value: number): number => Number(toSafeNumber(value).toFixed(2));
+
+const calculateLineTotals = (quantity: unknown, unitRate: unknown) => {
+  const baseAmount = toMoney(toSafeNumber(quantity) * toSafeNumber(unitRate));
+  const tax = toMoney(baseAmount * TAX_RATE);
+  const grandTotal = toMoney(baseAmount + tax);
+  return { baseAmount, tax, grandTotal };
+};
+
 const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
   const bytes = new Uint8Array(buffer);
   const chunkSize = 0x8000;
@@ -182,6 +199,7 @@ export const api = {
     await sleep(500);
 
     const flattenedRows: any[] = [];
+    const itemRows: any[] = [];
     let slNoCounter = 1;
     const isExcel = format === 'xlsx';
     const excelMode = excelOptions?.excelMode ?? excelOptions?.mode ?? 'new';
@@ -215,14 +233,58 @@ export const api = {
       };
 
       if (po.items && po.items.length > 0) {
+        const poItemRows: any[] = [];
         po.items.forEach((item, index) => {
           const meta = index === 0 ? fullMetaData : emptyMetaData;
-          flattenedRows.push({ ...meta, description: item.description || "", qty: item.quantity || 0, unitRate: item.rate || 0 });
+          const qty = toSafeNumber(item.quantity);
+          const unitRate = toSafeNumber(item.rate);
+          const { tax, grandTotal } = calculateLineTotals(qty, unitRate);
+          const row = {
+            ...meta,
+            description: item.description || "",
+            qty,
+            unitRate,
+            tax,
+            grandTotal
+          };
+          flattenedRows.push(row);
+          itemRows.push(row);
+          poItemRows.push(row);
         });
+
+        if (poItemRows.length > 1) {
+          const poCombinedGrandTotal = poItemRows.reduce((sum, row) => sum + toSafeNumber(row.grandTotal), 0);
+          flattenedRows.push({
+            slNo: "", category: "", requestor: "", prNumber: "", prDate: "",
+            poNumber: "", poDate: "", vendorName: "",
+            description: "PO Combined Grand Total",
+            qty: "", unitRate: "", tax: "",
+            grandTotal: toMoney(poCombinedGrandTotal),
+            status: "", deliveryDateAgreed: "", actualDeliveryDate: "",
+            agreedVsActual: "", remarks: "", daysPrToPo: "", remarksPrToPo: "",
+            daysPoToDelivery: "", remarksPoToDelivery: "",
+            negotiationSavings: "", remarksNegotiation: ""
+          });
+        }
       } else {
         flattenedRows.push({ ...fullMetaData, description: po.description || "Purchase Order", qty: 0, unitRate: 0 });
       }
     });
+
+    if (itemRows.length > 0) {
+      const combinedGrandTotal = itemRows.reduce((sum, row) => sum + toSafeNumber(row.grandTotal), 0);
+      flattenedRows.push({
+        slNo: "", category: "", requestor: "", prNumber: "", prDate: "",
+        poNumber: "", poDate: "", vendorName: "",
+        description: "Combined Grand Total",
+        qty: "", unitRate: "", tax: "",
+        grandTotal: toMoney(combinedGrandTotal),
+        status: "", deliveryDateAgreed: "", actualDeliveryDate: "",
+        agreedVsActual: "", remarks: "", daysPrToPo: "", remarksPrToPo: "",
+        daysPoToDelivery: "", remarksPoToDelivery: "",
+        negotiationSavings: "", remarksNegotiation: ""
+      });
+    }
 
     // ✅ Original 24-column format
     const headers = [
