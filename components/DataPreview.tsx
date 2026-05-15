@@ -7,6 +7,20 @@ interface DataPreviewProps {
   onUpdate: (id: string, updatedData: Partial<POData>) => void;
 }
 
+const TAX_RATE = 0.18;
+
+const toSafeNumber = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const calculateLineTotals = (quantity: unknown, unitRate: unknown) => {
+  const baseAmount = toSafeNumber(quantity) * toSafeNumber(unitRate);
+  const tax = baseAmount * TAX_RATE;
+  const grandTotal = baseAmount + tax;
+  return { baseAmount, tax, grandTotal };
+};
+
 export const DataPreview: React.FC<DataPreviewProps> = ({ data, onUpdate }) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -265,20 +279,29 @@ export const DataPreview: React.FC<DataPreviewProps> = ({ data, onUpdate }) => {
                                   <th className="px-4 py-2 text-right">Qty</th>
                                   <th className="px-4 py-2 text-right">Rate</th>
                                   <th className="px-4 py-2 text-right">Amount</th>
+                                  <th className="px-4 py-2 text-right">Tax</th>
+                                  <th className="px-4 py-2 text-right">Grand Total</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
-                                 {po.items.map((item, idx) => (
-                                   <tr key={idx}>
-                                     <td className="px-4 py-2">{item.description}</td>
-                                     <td className="px-4 py-2 text-right font-mono">{item.quantity}</td>
-                                     <td className="px-4 py-2 text-right font-mono">{item.rate.toFixed(2)}</td>
-                                     <td className="px-4 py-2 text-right font-mono font-semibold">{item.amount.toFixed(2)}</td>
-                                   </tr>
-                                 ))}
+                                 {po.items.map((item, idx) => {
+                                   const totals = calculateLineTotals(item.quantity, item.rate);
+                                   return (
+                                     <tr key={idx}>
+                                       <td className="px-4 py-2">{item.description}</td>
+                                       <td className="px-4 py-2 text-right font-mono">{toSafeNumber(item.quantity)}</td>
+                                       <td className="px-4 py-2 text-right font-mono">{toSafeNumber(item.rate).toFixed(2)}</td>
+                                       <td className="px-4 py-2 text-right font-mono font-semibold">{totals.baseAmount.toFixed(2)}</td>
+                                       <td className="px-4 py-2 text-right font-mono">{totals.tax.toFixed(2)}</td>
+                                       <td className="px-4 py-2 text-right font-mono font-semibold">{totals.grandTotal.toFixed(2)}</td>
+                                     </tr>
+                                   );
+                                 })}
                                  <tr className="bg-gray-50/50">
-                                   <td colSpan={3} className="px-4 py-2 text-right font-medium">Tax</td>
-                                   <td className="px-4 py-2 text-right font-mono">{po.tax.toFixed(2)}</td>
+                                   <td colSpan={5} className="px-4 py-2 text-right font-medium">Combined Grand Total</td>
+                                   <td className="px-4 py-2 text-right font-mono font-semibold">
+                                     {po.items.reduce((sum, item) => sum + calculateLineTotals(item.quantity, item.rate).grandTotal, 0).toFixed(2)}
+                                   </td>
                                  </tr>
                               </tbody>
                             </table>
