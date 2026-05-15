@@ -51,7 +51,6 @@ export const Dashboard: React.FC = () => {
       try {
         const data = await api.uploadAndExtract(files[i]);
         results.push(data);
-        await new Promise(resolve => setTimeout(resolve, 3000));
       } catch (error) {
         console.error("Error processing file", files[i].name, error);
         results.push({
@@ -74,10 +73,6 @@ export const Dashboard: React.FC = () => {
       }
       setProcessingProgress(prev => prev + 1);
       setExtractedData(prev => [...prev, results[results.length - 1]]);
-      
-      if (i < files.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
     }
 
     setProcessing(false);
