@@ -30,6 +30,8 @@ const headersMatch = (candidateRow, expectedHeaders) =>
 
 const isRowEmpty = (row) => !Array.isArray(row) || row.every((cell) => String(cell ?? '').trim() === '');
 
+const isCombinedGrandTotalRow = (row) => normalizeKeyText(row?.[8]) === 'COMBINED GRAND TOTAL';
+
 const normalizeCell = (value) => {
   if (value instanceof Date) return value.toISOString();
   return String(value ?? '').trim();
@@ -250,11 +252,13 @@ const buildWorkbook = (headers, rows) => {
         : cell
     );
   });
-  const finalRows = normalizeSlNoDisplay(
-    sortPoGroupsByPrNumber(
-      dedupeRows(normalizedRows.filter((row) => !isRowEmpty(row)))
-    )
-  );
+  const nonEmptyRows = normalizedRows.filter((row) => !isRowEmpty(row));
+  const summaryRows = nonEmptyRows.filter(isCombinedGrandTotalRow);
+  const dataRows = nonEmptyRows.filter((row) => !isCombinedGrandTotalRow(row));
+  const finalRows = [
+    ...normalizeSlNoDisplay(sortPoGroupsByPrNumber(dedupeRows(dataRows))),
+    ...summaryRows
+  ];
 
   // ─── FIX: Write full row for every line item; 2 empty rows only between PDFs ─
   const groupedRows = groupRowsByPdfKey(finalRows);
