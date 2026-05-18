@@ -257,7 +257,7 @@ export const api = {
           flattenedRows.push({
             slNo: "", category: "", requestor: "", prNumber: "", prDate: "",
             poNumber: "", poDate: "", vendorName: "",
-            description: "PO Combined Grand Total",
+            description: "Total",
             qty: "", unitRate: "", tax: "",
             grandTotal: toMoney(poCombinedGrandTotal),
             status: "", deliveryDateAgreed: "", actualDeliveryDate: "",
@@ -271,20 +271,6 @@ export const api = {
       }
     });
 
-    if (itemRows.length > 0) {
-      const combinedGrandTotal = itemRows.reduce((sum, row) => sum + toSafeNumber(row.grandTotal), 0);
-      flattenedRows.push({
-        slNo: "", category: "", requestor: "", prNumber: "", prDate: "",
-        poNumber: "", poDate: "", vendorName: "",
-        description: "Combined Grand Total",
-        qty: "", unitRate: "", tax: "",
-        grandTotal: toMoney(combinedGrandTotal),
-        status: "", deliveryDateAgreed: "", actualDeliveryDate: "",
-        agreedVsActual: "", remarks: "", daysPrToPo: "", remarksPrToPo: "",
-        daysPoToDelivery: "", remarksPoToDelivery: "",
-        negotiationSavings: "", remarksNegotiation: ""
-      });
-    }
 
     // ✅ Original 24-column format
     const headers = [
