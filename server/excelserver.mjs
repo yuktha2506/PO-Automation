@@ -30,7 +30,6 @@ const headersMatch = (candidateRow, expectedHeaders) =>
 
 const isRowEmpty = (row) => !Array.isArray(row) || row.every((cell) => String(cell ?? '').trim() === '');
 
-const isCombinedGrandTotalRow = (row) => normalizeKeyText(row?.[8]) === 'COMBINED GRAND TOTAL';
 
 const normalizeCell = (value) => {
   if (value instanceof Date) return value.toISOString();
