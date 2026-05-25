@@ -19,9 +19,9 @@ const toSafeNumber = (value: unknown): number => {
 
 const toMoney = (value: number): number => Number(toSafeNumber(value).toFixed(2));
 
-const calculateLineTotals = (quantity: unknown, unitRate: unknown) => {
+const calculateLineTotals = (quantity: unknown, unitRate: unknown, isDualOrder = false) => {
   const baseAmount = toMoney(toSafeNumber(quantity) * toSafeNumber(unitRate));
-  const tax = toMoney(baseAmount * TAX_RATE);
+  const tax = toMoney((isDualOrder ? toSafeNumber(unitRate) : baseAmount) * TAX_RATE);
   const grandTotal = toMoney(baseAmount + tax);
   return { baseAmount, tax, grandTotal };
 };
@@ -234,11 +234,12 @@ export const api = {
 
       if (po.items && po.items.length > 0) {
         const poItemRows: any[] = [];
+        const isDualOrder = po.items.length > 1;
         po.items.forEach((item, index) => {
           const meta = index === 0 ? fullMetaData : emptyMetaData;
           const qty = toSafeNumber(item.quantity);
           const unitRate = toSafeNumber(item.rate);
-          const { tax, grandTotal } = calculateLineTotals(qty, unitRate);
+          const { tax, grandTotal } = calculateLineTotals(qty, unitRate, isDualOrder);
           const row = {
             ...meta,
             description: item.description || "",
