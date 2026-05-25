@@ -14,9 +14,9 @@ const toSafeNumber = (value: unknown): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const calculateLineTotals = (quantity: unknown, unitRate: unknown) => {
+const calculateLineTotals = (quantity: unknown, unitRate: unknown, isDualOrder = false) => {
   const baseAmount = toSafeNumber(quantity) * toSafeNumber(unitRate);
-  const tax = baseAmount * TAX_RATE;
+  const tax = (isDualOrder ? toSafeNumber(unitRate) : baseAmount) * TAX_RATE;
   const grandTotal = baseAmount + tax;
   return { baseAmount, tax, grandTotal };
 };
@@ -285,7 +285,8 @@ export const DataPreview: React.FC<DataPreviewProps> = ({ data, onUpdate }) => {
                               </thead>
                               <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
                                  {po.items.map((item, idx) => {
-                                   const totals = calculateLineTotals(item.quantity, item.rate);
+                                   const isDualOrder = po.items.length > 1;
+                                   const totals = calculateLineTotals(item.quantity, item.rate, isDualOrder);
                                    return (
                                      <tr key={idx}>
                                        <td className="px-4 py-2">{item.description}</td>
@@ -300,7 +301,7 @@ export const DataPreview: React.FC<DataPreviewProps> = ({ data, onUpdate }) => {
                                  <tr className="bg-gray-50/50">
                                    <td colSpan={5} className="px-4 py-2 text-right font-medium">Combined Grand Total</td>
                                    <td className="px-4 py-2 text-right font-mono font-semibold">
-                                     {po.items.reduce((sum, item) => sum + calculateLineTotals(item.quantity, item.rate).grandTotal, 0).toFixed(2)}
+                                     {po.items.reduce((sum, item) => sum + calculateLineTotals(item.quantity, item.rate, po.items.length > 1).grandTotal, 0).toFixed(2)}
                                    </td>
                                  </tr>
                               </tbody>
