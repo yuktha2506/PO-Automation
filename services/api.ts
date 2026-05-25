@@ -22,7 +22,7 @@ const toMoney = (value: number): number => Number(toSafeNumber(value).toFixed(2)
 const calculateLineTotals = (quantity: unknown, unitRate: unknown, isDualOrder = false) => {
   const baseAmount = toMoney(toSafeNumber(quantity) * toSafeNumber(unitRate));
   const tax = toMoney((isDualOrder ? toSafeNumber(unitRate) : baseAmount) * TAX_RATE);
-  const grandTotal = toMoney(baseAmount + tax);
+  const grandTotal = toMoney(baseAmount + (isDualOrder ? baseAmount * TAX_RATE : tax));
   return { baseAmount, tax, grandTotal };
 };
 
