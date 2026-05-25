@@ -17,7 +17,7 @@ const toSafeNumber = (value: unknown): number => {
 const calculateLineTotals = (quantity: unknown, unitRate: unknown, isDualOrder = false) => {
   const baseAmount = toSafeNumber(quantity) * toSafeNumber(unitRate);
   const tax = (isDualOrder ? toSafeNumber(unitRate) : baseAmount) * TAX_RATE;
-  const grandTotal = baseAmount + tax;
+  const grandTotal = baseAmount + (isDualOrder ? baseAmount * TAX_RATE : tax);
   return { baseAmount, tax, grandTotal };
 };
 
