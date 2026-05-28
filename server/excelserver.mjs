@@ -108,7 +108,8 @@ const extractPrSortValue = (prValue) => {
 // Dedup key priority:
 // 1) Normalized PR Number (col 3) + Description (col 8)
 //    (allows multiple line items under same PR with different descriptions)
-// 2) Fallback: Vendor (col 7) + Total (col 12) + Description (col 8)
+// 2) Fallback: Vendor (col 7) + Description (col 8) + Qty (col 9) + Unit Rate (col 10)
+// 3) Final fallback: Vendor (col 7) + Total (col 12) + Description (col 8)
 const buildDuplicateKey = (row) => {
   const normalizedPr = normalizePrNumber(row?.[3]);
   const description = normalizeKeyText(row?.[8]);
@@ -118,6 +119,12 @@ const buildDuplicateKey = (row) => {
   }
 
   const vendor = normalizeKeyText(row?.[7]);
+  const qty = normalizeAmountKey(row?.[9]);
+  const unitRate = normalizeAmountKey(row?.[10]);
+  if (description && (qty || unitRate)) {
+    return `fallback-line:${vendor}||desc:${description}||qty:${qty}||rate:${unitRate}`;
+  }
+
   const total = normalizeAmountKey(row?.[12]);
   const fallbackKey = [vendor, total, description].join('||');
   if (!fallbackKey || fallbackKey === '||') return '';
