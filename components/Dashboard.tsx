@@ -153,7 +153,7 @@ export const Dashboard: React.FC = () => {
       setTimeout(() => setShowSuccess(false), 5000);
     } catch (error) {
       console.error("Export failed", error);
-      alert("Failed to generate file.");
+      alert("Failed to Generate");
     } finally {
       setGenerationLoading(false);
     }
@@ -186,7 +186,7 @@ export const Dashboard: React.FC = () => {
       alert(result?.message || 'Excel uploaded successfully.');
     } catch (error: any) {
       console.error('Upload Excel failed', error);
-      alert(error?.message || 'Failed to upload Excel.');
+      alert('Failed to Upload');
     } finally {
       setExcelUploadLoading(false);
     }
