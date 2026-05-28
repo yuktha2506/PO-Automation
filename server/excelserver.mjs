@@ -15,6 +15,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STORAGE_DIR = path.resolve(__dirname, '..', 'storage');
 const MASTER_FILE_PATH = path.join(STORAGE_DIR, 'po_master.xlsx');
 const SHEET_NAME = 'PO Tracker';
+const PO_TRACKER_HEADERS = [
+  "Sl No", "Category", "Requestor Name", "PR Number", "PR Date",
+  "Purchase Order No", "PO Date", "Vendor Name", "Description",
+  "Qty", "Unit Rate", "Tax", "Grand Total", "Status",
+  "Delivery Date agreed as per PO", "Actual Delivery Date",
+  "Agreed vs Actual Delivery Date", "Remarks",
+  "No of days from PR to PO", "Remarks",
+  "No of Days from PO to Delivery", "Remarks",
+  "Negotiation Savings", "Remarks"
+];
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/legacy/build/pdf.worker.mjs',
@@ -603,6 +613,72 @@ const writeMasterExcel = async (workbook) => {
   }
 };
 
+const getExcelJsCellValue = (cell) => {
+  const value = cell.value;
+  if (value && typeof value === 'object') {
+    if ('result' in value) return value.result ?? '';
+    if ('text' in value) return value.text ?? '';
+    if (Array.isArray(value.richText)) return value.richText.map((part) => part.text ?? '').join('');
+  }
+  return value ?? '';
+};
+
+const getExcelJsRowValues = (row, columnCount = PO_TRACKER_HEADERS.length) =>
+  Array.from({ length: columnCount }, (_, index) => getExcelJsCellValue(row.getCell(index + 1)));
+
+const dedupeUploadedMasterWorkbook = async (buffer) => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) throw new Error('Uploaded Excel file does not contain a worksheet.');
+
+  let headerRowNumber = null;
+  worksheet.eachRow((row, rowNumber) => {
+    if (headerRowNumber !== null) return;
+    const values = getExcelJsRowValues(row);
+    if (headersMatch(values, PO_TRACKER_HEADERS)) headerRowNumber = rowNumber;
+  });
+
+  if (headerRowNumber === null) {
+    console.warn('Uploaded Excel header did not match PO Tracker format. Saving file without upload dedupe.');
+    return { buffer, removedDuplicates: 0 };
+  }
+
+  const seen = new Set();
+  const duplicateRowNumbers = [];
+  for (let rowNumber = headerRowNumber + 1; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    const row = worksheet.getRow(rowNumber);
+    const values = getExcelJsRowValues(row);
+    if (isRowEmpty(values)) continue;
+    const key = buildDuplicateKey(values);
+    if (!key) continue;
+    if (seen.has(key)) duplicateRowNumbers.push(rowNumber);
+    else seen.add(key);
+  }
+
+  duplicateRowNumbers
+    .sort((a, b) => b - a)
+    .forEach((rowNumber) => worksheet.spliceRows(rowNumber, 1));
+
+  const outputBuffer = duplicateRowNumbers.length > 0
+    ? Buffer.from(await workbook.xlsx.writeBuffer())
+    : buffer;
+
+  return { buffer: outputBuffer, removedDuplicates: duplicateRowNumbers.length };
+};
+
+const replaceMasterExcelFile = async (buffer) => {
+  await ensureStorageDir();
+  const tempPath = `${MASTER_FILE_PATH}.upload-${Date.now()}.tmp`;
+  await fs.promises.writeFile(tempPath, buffer);
+  const stats = await fs.promises.stat(tempPath);
+  if (!stats.size) {
+    await fs.promises.unlink(tempPath).catch(() => {});
+    throw new Error('Uploaded Excel file is empty after write.');
+  }
+  await fs.promises.rename(tempPath, MASTER_FILE_PATH);
+};
+
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
@@ -672,8 +748,14 @@ const handleUploadExcel = async (req, res) => {
     if (!file) {
       return res.status(400).json({ success: false, error: 'No file uploaded.' });
     }
-    await fs.promises.writeFile(MASTER_FILE_PATH, file.buffer);
-    return res.status(200).json({ success: true, message: 'Master Excel file updated.' });
+    const { buffer, removedDuplicates } = await dedupeUploadedMasterWorkbook(file.buffer);
+    await replaceMasterExcelFile(buffer);
+    return res.status(200).json({
+      success: true,
+      message: removedDuplicates > 0
+        ? `Master Excel file updated. Skipped ${removedDuplicates} duplicate row(s).`
+        : 'Master Excel file updated.'
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Upload failed.';
     console.error('Upload Excel error:', error);
