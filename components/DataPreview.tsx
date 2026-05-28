@@ -55,6 +55,11 @@ export const DataPreview: React.FC<DataPreviewProps> = ({ data, onUpdate }) => {
     }
   };
 
+  const displayText = (value: unknown, fallback = '-') => {
+    const text = String(value ?? '').trim();
+    return text || fallback;
+  };
+
   if (data.length === 0) return null;
 
   return (
@@ -171,15 +176,15 @@ export const DataPreview: React.FC<DataPreviewProps> = ({ data, onUpdate }) => {
                         </td>
                         <td className="px-4 py-4 align-top font-medium text-gray-700 dark:text-gray-300">{po.requestor_name}</td>
                         <td className="px-4 py-4 align-top">
-                          <div className="font-medium text-gray-900 dark:text-gray-100">{po.pr_number}</div>
-                          <div className="text-[10px] text-gray-400 font-mono">{po.pr_date}</div>
+                          <div className="font-medium text-gray-900 dark:text-gray-100">{displayText(po.pr_number)}</div>
+                          <div className="text-[10px] text-gray-400 font-mono">{displayText(po.pr_date, '')}</div>
                         </td>
                         <td className="px-4 py-4 align-top">
-                          <div className="font-bold text-blue-600 dark:text-blue-400">{po.po_number}</div>
-                          <div className="text-[10px] text-gray-400 font-mono">{po.date}</div>
+                          <div className="font-bold text-blue-600 dark:text-blue-400">{displayText(po.po_number)}</div>
+                          <div className="text-[10px] text-gray-400 font-mono">{displayText(po.date, '')}</div>
                         </td>
-                        <td className="px-4 py-4 align-top text-gray-600 dark:text-gray-400 truncate max-w-[150px]" title={po.supplier_name}>
-                          {po.supplier_name}
+                        <td className="px-4 py-4 align-top text-gray-600 dark:text-gray-400 truncate max-w-[150px]" title={displayText(po.supplier_name, '')}>
+                          {displayText(po.supplier_name)}
                         </td>
                         <td className="px-4 py-4 align-top text-right font-mono font-bold text-gray-900 dark:text-white">
                           {po.total.toFixed(2)}
@@ -191,7 +196,7 @@ export const DataPreview: React.FC<DataPreviewProps> = ({ data, onUpdate }) => {
                        {po.status === 'completed' ? (
                         <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">Verified</span>
                       ) : po.status === 'error' ? (
-                        <span className="text-xs text-red-600 dark:text-red-400 font-bold" title={po.errorMessage}>Error</span>
+                        <span className="text-xs text-red-600 dark:text-red-400 font-bold" title={po.errorMessage}>{po.errorMessage || 'Error'}</span>
                       ) : (
                          <span className="text-xs text-amber-600 dark:text-amber-400">Pending</span>
                       )}
