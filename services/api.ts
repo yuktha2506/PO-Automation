@@ -116,15 +116,10 @@ const generateMockPOData = (fileName: string): POData => {
 export const api = {
   uploadAndExtract: async (file: File): Promise<POData> => {
     if (USE_MOCK_API) {
-      throw new Error('Mock extraction is disabled. Set USE_MOCK_API=false to use the real Gemini API.');
+      await sleep(MOCK_DELAY_MS);
+      return generateMockPOData(file.name);
     }
     try {
-      const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-      if (!GEMINI_API_KEY) {
-        console.warn("API_KEY not found. Falling back to mock data.");
-        await sleep(1000);
-        return generateMockPOData(file.name);
-      }
       if (file.type !== 'application/pdf') throw new Error('Only PDF uploads are supported.');
 
       const buffer = await file.arrayBuffer();
@@ -134,29 +129,47 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileName: file.name, mimeType: file.type, base64 })
       });
-      if (!response.ok) throw new Error((await response.text()) || 'PO extraction failed.');
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'PO extraction failed.');
+      }
 
       const payload = await response.json();
       if (!payload?.success || !payload?.data) throw new Error(payload?.error || 'PO extraction failed.');
 
       const result = payload.data;
+      const items = result.items?.flatMap((item: any, idx: number) => {
+        const fullDesc = item.description || "";
+        const splitDescriptions = fullDesc.split(/\n(?=\d+\.\s)/);
+        if (splitDescriptions.length > 1) {
+          return splitDescriptions.map((descPart: string, subIdx: number) => ({
+            id: `${idx}-${subIdx}`, description: descPart.trim(),
+            quantity: Number(item.quantity) || 0, rate: Number(item.rate) || 0, amount: Number(item.amount) || 0
+          }));
+        }
+        return [{ id: `${idx}`, description: fullDesc, quantity: Number(item.quantity) || 0, rate: Number(item.rate) || 0, amount: Number(item.amount) || 0 }];
+      }) || [];
+
+      const hasExtractedData = Boolean(
+        result.po_number ||
+        result.supplier_name ||
+        result.pr_number ||
+        result.requestor_name ||
+        result.description ||
+        items.length > 0 ||
+        Number(result.total) > 0
+      );
+      if (!hasExtractedData) {
+        throw new Error('No purchase order data was extracted from this PDF.');
+      }
+
       return {
         id: Math.random().toString(36).substr(2, 9),
         fileName: file.name,
         po_number: result.po_number || "",
         supplier_name: result.supplier_name || "",
         date: result.date || "",
-        items: result.items?.flatMap((item: any, idx: number) => {
-          const fullDesc = item.description || "";
-          const splitDescriptions = fullDesc.split(/\n(?=\d+\.\s)/);
-          if (splitDescriptions.length > 1) {
-            return splitDescriptions.map((descPart: string, subIdx: number) => ({
-              id: `${idx}-${subIdx}`, description: descPart.trim(),
-              quantity: Number(item.quantity) || 0, rate: Number(item.rate) || 0, amount: Number(item.amount) || 0
-            }));
-          }
-          return [{ id: `${idx}`, description: fullDesc, quantity: Number(item.quantity) || 0, rate: Number(item.rate) || 0, amount: Number(item.amount) || 0 }];
-        }) || [],
+        items,
         tax: Number(result.tax) || 0,
         total: Number(result.total) || 0,
         status: 'completed',
@@ -176,7 +189,9 @@ export const api = {
     } catch (error: any) {
       console.error("Extraction Error:", error);
       let errorMsg = 'Failed to extract data.';
-      if (error?.status === 429 || (error?.message && (error.message.includes('429') || error.message.toLowerCase().includes('quota')))) {
+      if (error instanceof TypeError && error.message.toLowerCase().includes('fetch')) {
+        errorMsg = 'Backend extraction server is not running. Start node server/excelserver.mjs and try again.';
+      } else if (error?.status === 429 || (error?.message && (error.message.includes('429') || error.message.toLowerCase().includes('quota')))) {
         errorMsg = 'API Quota Exceeded. Please try again later.';
       } else if (error?.message) {
         errorMsg = error.message;
