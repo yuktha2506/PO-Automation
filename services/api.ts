@@ -182,7 +182,7 @@ export const api = {
         errorMsg = error.message;
       }
       return {
-        id: Math.random().toString(36), fileName: file.name, po_number: 'Error', supplier_name: 'Error',
+        id: Math.random().toString(36), fileName: file.name, po_number: '', supplier_name: '',
         date: '', items: [], tax: 0, total: 0, status: 'error', errorMessage: errorMsg,
         category: '', requestor_name: '', pr_number: '', pr_date: '', description: ''
       };
