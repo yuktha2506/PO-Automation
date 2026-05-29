@@ -478,6 +478,76 @@ const filterRowsForExistingWorkbook = (rows, existingKeys) => {
     });
 };
 
+const getMaxSlNoFromWorksheet = (worksheet) => {
+  let maxSlNo = 0;
+  for (let rowNumber = 1; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    const slNo = toSlNo(getExcelJsCellValue(worksheet.getRow(rowNumber).getCell(1)));
+    if (slNo && slNo > maxSlNo) maxSlNo = slNo;
+  }
+  return maxSlNo;
+};
+
+const hasWorksheetDataRows = (worksheet, headers) => {
+  const headerRowNumber =
+    findExcelJsHeaderRow(worksheet, headers)
+    ?? findExcelJsHeaderRow(worksheet, PO_TRACKER_HEADERS)
+    ?? 0;
+
+  for (let rowNumber = headerRowNumber + 1; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    const values = getExcelJsRowValues(worksheet.getRow(rowNumber), headers.length);
+    if (!isRowEmpty(values)) return true;
+  }
+  return false;
+};
+
+const getAppendGroupKey = (row) => {
+  const pr = normalizePrNumber(row?.[3]);
+  if (pr) return `pr:${pr}`;
+  const po = normalizeKeyText(row?.[5]);
+  if (po) return `po:${po}`;
+  const vendor = normalizeKeyText(row?.[7]);
+  const description = normalizeKeyText(row?.[8]);
+  const qty = normalizeAmountKey(row?.[9]);
+  const unitRate = normalizeAmountKey(row?.[10]);
+  return `fallback:${vendor}||${description}||${qty}||${unitRate}`;
+};
+
+const groupRowsForExistingAppend = (rows) => {
+  const groups = [];
+  let currentGroup = [];
+  let lastKey = null;
+
+  rows.forEach((row) => {
+    if (isContinuationRow(row)) {
+      if (currentGroup.length > 0) currentGroup.push(row);
+      else currentGroup = [row];
+      return;
+    }
+
+    const key = getAppendGroupKey(row);
+    if (lastKey !== null && key !== lastKey) {
+      if (currentGroup.length > 0) groups.push(currentGroup);
+      currentGroup = [row];
+    } else {
+      currentGroup.push(row);
+    }
+    lastKey = key;
+  });
+
+  if (currentGroup.length > 0) groups.push(currentGroup);
+  return groups;
+};
+
+const prepareRowsForExistingAppend = (rows, startingSlNo) =>
+  groupRowsForExistingAppend(rows)
+    .map((group, groupIndex) =>
+      group.map((row, rowIndex) => {
+        const nextRow = Array.isArray(row) ? [...row] : [];
+        nextRow[0] = rowIndex === 0 ? startingSlNo + groupIndex : '';
+        return nextRow;
+      })
+    );
+
 const appendRowsToExistingWorkbook = async (buffer, headers, rows) => {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer);
@@ -489,9 +559,21 @@ const appendRowsToExistingWorkbook = async (buffer, headers, rows) => {
 
   const existingKeys = getExistingDuplicateKeysFromWorksheet(worksheet, headers);
   const filteredRows = filterRowsForExistingWorkbook(rows, existingKeys);
+  const groupedRows = prepareRowsForExistingAppend(filteredRows, getMaxSlNoFromWorksheet(worksheet) + 1);
 
-  filteredRows.forEach((row) => {
-    worksheet.addRow(headers.map((_, index) => row[index] ?? ''));
+  if (groupedRows.length > 0 && hasWorksheetDataRows(worksheet, headers)) {
+    worksheet.addRow([]);
+    worksheet.addRow([]);
+  }
+
+  groupedRows.forEach((group, groupIndex) => {
+    group.forEach((row) => {
+      worksheet.addRow(headers.map((_, index) => row[index] ?? ''));
+    });
+    if (groupIndex < groupedRows.length - 1) {
+      worksheet.addRow([]);
+      worksheet.addRow([]);
+    }
   });
 
   return {
