@@ -1046,11 +1046,6 @@ const server = http.createServer(async (req, res) => {
     await fs.promises.writeFile(outputPath, outputBuffer);
     console.log('Excel export saved:', { outputPath, outputFilename });
 
-    // New file mode also refreshes the master source of truth.
-    if (mode !== 'existing') {
-      await writeMasterExcel(workbook);
-    }
-
     sendJson(res, 200, {
       success: true,
       downloadUrl: `/api/download/${encodeURIComponent(outputFilename)}`
