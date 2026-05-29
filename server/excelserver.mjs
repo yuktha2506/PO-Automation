@@ -533,7 +533,9 @@ const sortWorksheetPoGroupsByPrNumber = (worksheet, headers) => {
 
   if (rows.length === 0) return;
 
-  worksheet.spliceRows(headerRowNumber + 1, worksheet.rowCount - headerRowNumber);
+  for (let rowNumber = worksheet.rowCount; rowNumber > headerRowNumber; rowNumber -= 1) {
+    worksheet.spliceRows(rowNumber, 1);
+  }
 
   const groupedRows = groupRowsByPdfKey(
     normalizeSlNoDisplay(sortPoGroupsByPrNumber(rows))
@@ -920,6 +922,7 @@ const getSortedMasterExcelBuffer = async () => {
   await workbook.xlsx.readFile(MASTER_FILE_PATH);
   const worksheet = getTargetWorksheetForAppend(workbook, PO_TRACKER_HEADERS);
   sortWorksheetPoGroupsByPrNumber(worksheet, PO_TRACKER_HEADERS);
+  await workbook.xlsx.writeFile(MASTER_FILE_PATH);
   return Buffer.from(await workbook.xlsx.writeBuffer());
 };
 
