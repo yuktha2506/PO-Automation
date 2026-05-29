@@ -404,15 +404,101 @@ const getExistingDataRows = (workbook, headers) => {
   );
 
   if (headerRowIndex === -1) {
-    throw new Error(
-      'Header mismatch in po_master.xlsx. Expected 24-column PO Tracker headers. Please delete or fix po_master.xlsx and try again.'
+    console.warn(
+      'Header mismatch in po_master.xlsx. Existing master rows will be ignored for this export.'
     );
+    return [];
   }
 
   return existingRows
     .slice(headerRowIndex + 1)
     .filter((row) => !isRowEmpty(row))
     .map((row) => headers.map((_, index) => row[index] ?? ''));
+};
+
+const findExcelJsHeaderRow = (worksheet, headers) => {
+  let headerRowNumber = null;
+  worksheet.eachRow((row, rowNumber) => {
+    if (headerRowNumber !== null) return;
+    const values = getExcelJsRowValues(row, headers.length);
+    if (headersMatch(values, headers)) headerRowNumber = rowNumber;
+  });
+  return headerRowNumber;
+};
+
+const getTargetWorksheetForAppend = (workbook, headers) =>
+  workbook.worksheets.find((worksheet) => findExcelJsHeaderRow(worksheet, headers) !== null)
+  || workbook.worksheets.find((worksheet) => findExcelJsHeaderRow(worksheet, PO_TRACKER_HEADERS) !== null)
+  || workbook.getWorksheet(SHEET_NAME)
+  || workbook.worksheets[0]
+  || workbook.addWorksheet(SHEET_NAME);
+
+const getExistingDuplicateKeysFromWorksheet = (worksheet, headers) => {
+  const headerRowNumber =
+    findExcelJsHeaderRow(worksheet, headers)
+    ?? findExcelJsHeaderRow(worksheet, PO_TRACKER_HEADERS);
+  const keys = new Set();
+
+  if (headerRowNumber === null) {
+    console.warn('Header row not found while appending to existing workbook. Duplicate check will use incoming rows only.');
+    return keys;
+  }
+
+  for (let rowNumber = headerRowNumber + 1; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    const values = getExcelJsRowValues(worksheet.getRow(rowNumber), headers.length);
+    if (isRowEmpty(values)) continue;
+    const key = buildDuplicateKey(values);
+    if (key) keys.add(key);
+  }
+
+  return keys;
+};
+
+const normalizeRowForAppend = (row) => {
+  const normalized = Array.isArray(row) ? [...row] : [];
+  if (normalized.length > 4) normalized[4] = formatPrDateCell(normalized[4]);
+  return normalized.map((cell) =>
+    typeof cell === 'string'
+      ? cell.replace(/\r?\n|\r/g, ' ').trim()
+      : cell
+  );
+};
+
+const filterRowsForExistingWorkbook = (rows, existingKeys) => {
+  const incomingKeys = new Set();
+  return rows
+    .map(normalizeRowForAppend)
+    .filter((row) => {
+      if (isRowEmpty(row)) return false;
+      const key = buildDuplicateKey(row);
+      if (!key) return true;
+      if (existingKeys.has(key) || incomingKeys.has(key)) return false;
+      incomingKeys.add(key);
+      return true;
+    });
+};
+
+const appendRowsToExistingWorkbook = async (buffer, headers, rows) => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const worksheet = getTargetWorksheetForAppend(workbook, headers);
+
+  if (worksheet.rowCount === 0) {
+    worksheet.addRow(headers);
+  }
+
+  const existingKeys = getExistingDuplicateKeysFromWorksheet(worksheet, headers);
+  const filteredRows = filterRowsForExistingWorkbook(rows, existingKeys);
+
+  filteredRows.forEach((row) => {
+    worksheet.addRow(headers.map((_, index) => row[index] ?? ''));
+  });
+
+  return {
+    workbook,
+    appendedCount: filteredRows.length,
+    skippedCount: Math.max(0, rows.length - filteredRows.length)
+  };
 };
 
 const buildExistingPrSet = (rows) => {
@@ -647,8 +733,7 @@ const dedupeUploadedMasterWorkbook = async (buffer) => {
   });
 
   if (headerRowNumber === null) {
-    console.warn('Uploaded Excel header did not match PO Tracker format. Saving file without upload dedupe.');
-    return { buffer, removedDuplicates: 0 };
+    throw new Error('Uploaded Excel file does not match the PO Tracker format.');
   }
 
   const seen = new Set();
@@ -683,7 +768,18 @@ const replaceMasterExcelFile = async (buffer) => {
     await fs.promises.unlink(tempPath).catch(() => {});
     throw new Error('Uploaded Excel file is empty after write.');
   }
-  await fs.promises.rename(tempPath, MASTER_FILE_PATH);
+  try {
+    await fs.promises.rename(tempPath, MASTER_FILE_PATH);
+  } catch (error) {
+    console.warn('Atomic master Excel replace failed. Falling back to overwrite:', error);
+    await fs.promises.copyFile(tempPath, MASTER_FILE_PATH);
+    await fs.promises.unlink(tempPath).catch(() => {});
+  }
+
+  const savedStats = await fs.promises.stat(MASTER_FILE_PATH);
+  if (!savedStats.size) {
+    throw new Error('Master Excel file is empty after upload.');
+  }
 };
 
 const upload = multer({
@@ -916,23 +1012,23 @@ const server = http.createServer(async (req, res) => {
 
     if (mode === 'existing') {
       if (fs.existsSync(MASTER_FILE_PATH)) {
-        const source = fs.readFileSync(MASTER_FILE_PATH);
-        const existingWorkbook = XLSX.read(source, { type: 'buffer' });
+        const source = await fs.promises.readFile(MASTER_FILE_PATH);
+        const appendResult = await appendRowsToExistingWorkbook(source, headers, rows);
+        workbook = appendResult.workbook;
+        console.log(
+          `Existing master preserved. Appended ${appendResult.appendedCount} row(s), skipped ${appendResult.skippedCount} duplicate row(s).`
+        );
+        // Existing workbook rows are preserved by appendRowsToExistingWorkbook.
 
         // Read existing rows — strict 24-col header match
-        const existingRows = getExistingDataRows(existingWorkbook, headers);
-        console.log(`Existing master has ${existingRows.length} data rows.`);
+        
 
-        // Build set of existing PR identifiers, then skip any incoming rows whose PR already exists
-        const existingPrs = buildExistingPrSet(existingRows);
-        const filteredRows = filterOutExistingRows(rows, existingPrs);
-        console.log(`Filtered new rows: ${rows.length} -> ${filteredRows.length} (existing PRs skipped).`);
+        
 
-        // Merge existing + filtered rows, dedupe, then sort by PR Number ascending
         // PR numbers are NOT modified — extracted as-is from PDFs
-        workbook = buildWorkbook(headers, [...existingRows, ...filteredRows]);
-        console.log(`Built workbook: ${existingRows.length} existing + ${filteredRows.length} new rows.`);
+        
 
+        
       } else {
         // No master file yet — create fresh
         console.log('No existing master file. Creating fresh.');
@@ -950,8 +1046,10 @@ const server = http.createServer(async (req, res) => {
     await fs.promises.writeFile(outputPath, outputBuffer);
     console.log('Excel export saved:', { outputPath, outputFilename });
 
-    // Always update master file as the source of truth
-    await writeMasterExcel(workbook);
+    // New file mode also refreshes the master source of truth.
+    if (mode !== 'existing') {
+      await writeMasterExcel(workbook);
+    }
 
     sendJson(res, 200, {
       success: true,
