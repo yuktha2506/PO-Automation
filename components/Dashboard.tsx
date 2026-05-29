@@ -162,7 +162,18 @@ export const Dashboard: React.FC = () => {
   const handleDownloadExcel = async () => {
     setExcelDownloadLoading(true);
     try {
-      window.open('/api/excel/download-existing', '_blank');
+      const blob = await api.downloadMasterExcel();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'po_master.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Existing Excel download failed', error);
+      alert('Failed to Download');
     } finally {
       setExcelDownloadLoading(false);
     }
