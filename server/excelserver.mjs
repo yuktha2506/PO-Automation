@@ -464,12 +464,24 @@ const normalizeRowForAppend = (row) => {
   );
 };
 
+const isInternalVerificationRow = (row) => {
+  const requestor = normalizeKeyText(row?.[2]);
+  const po = normalizeKeyText(row?.[5]);
+  const vendor = normalizeKeyText(row?.[7]);
+  const description = normalizeKeyText(row?.[8]);
+
+  return requestor === 'TEST USER'
+    && vendor === 'TEST VENDOR'
+    && (po.startsWith('PO-SPACE') || po.startsWith('PO-EXISTING-TEST') || description.startsWith('SPACING TEST'));
+};
+
 const filterRowsForExistingWorkbook = (rows, existingKeys) => {
   const incomingKeys = new Set();
   return rows
     .map(normalizeRowForAppend)
     .filter((row) => {
       if (isRowEmpty(row)) return false;
+      if (isInternalVerificationRow(row)) return false;
       const key = buildDuplicateKey(row);
       if (!key) return true;
       if (existingKeys.has(key) || incomingKeys.has(key)) return false;
