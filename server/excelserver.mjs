@@ -915,6 +915,14 @@ const replaceMasterExcelFile = async (buffer) => {
   }
 };
 
+const getSortedMasterExcelBuffer = async () => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(MASTER_FILE_PATH);
+  const worksheet = getTargetWorksheetForAppend(workbook, PO_TRACKER_HEADERS);
+  sortWorksheetPoGroupsByPrNumber(worksheet, PO_TRACKER_HEADERS);
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+};
+
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
@@ -933,14 +941,10 @@ app.get('/api/excel/download-existing', async (req, res) => {
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ success: false, error: 'Master Excel not found' });
     }
-    return res.download(filePath, 'po_master.xlsx', (err) => {
-      if (err) {
-        console.error('Download existing Excel error:', err);
-        if (!res.headersSent) {
-          res.status(500).json({ success: false, error: 'Failed to download master Excel.' });
-        }
-      }
-    });
+    const outputBuffer = await getSortedMasterExcelBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="po_master.xlsx"');
+    return res.end(outputBuffer);
   } catch (error) {
     console.error('Download existing Excel error:', error);
     return res.status(500).json({ success: false, error: 'Unable to process download.' });
@@ -959,14 +963,12 @@ const handleDownloadExcel = async (req, res) => {
     if (!stats.size) {
       return res.status(500).json({ success: false, error: 'Master Excel file is empty.' });
     }
-    return res.download(MASTER_FILE_PATH, 'po_master.xlsx', (err) => {
-      if (err) {
-        console.error('Download error:', err);
-        if (!res.headersSent) res.status(500).json({ success: false, error: 'Failed to download master file.' });
-      } else {
-        console.log('Excel download served:', MASTER_FILE_PATH);
-      }
-    });
+    const outputBuffer = await getSortedMasterExcelBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="po_master.xlsx"');
+    res.end(outputBuffer);
+    console.log('Sorted Excel download served:', MASTER_FILE_PATH);
+    return;
   } catch (error) {
     console.error('Download Excel error:', error);
     return res.status(500).json({ success: false, error: 'Unable to process download.' });
