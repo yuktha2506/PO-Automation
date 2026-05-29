@@ -1008,7 +1008,7 @@ const server = http.createServer(async (req, res) => {
     if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR, { recursive: true });
 
     let workbook;
-    const { outputFilename, outputPath } = getOutputPaths(mode);
+    let { outputFilename, outputPath } = getOutputPaths(mode);
 
     if (mode === 'existing') {
       if (fs.existsSync(MASTER_FILE_PATH)) {
@@ -1043,7 +1043,22 @@ const server = http.createServer(async (req, res) => {
     const outputBuffer = Buffer.from(await workbook.xlsx.writeBuffer());
 
     await ensureStorageDir();
-    await fs.promises.writeFile(outputPath, outputBuffer);
+    try {
+      await fs.promises.writeFile(outputPath, outputBuffer);
+    } catch (writeError) {
+      const code = writeError && typeof writeError === 'object' ? writeError.code : '';
+      if (mode !== 'existing' || (code !== 'EBUSY' && code !== 'EPERM')) {
+        throw writeError;
+      }
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      outputFilename = `po_master_updated_${timestamp}.xlsx`;
+      outputPath = path.join(STORAGE_DIR, outputFilename);
+      console.warn(
+        `Master Excel is locked (${code}). Saving updated existing workbook as ${outputFilename}.`
+      );
+      await fs.promises.writeFile(outputPath, outputBuffer);
+    }
     console.log('Excel export saved:', { outputPath, outputFilename });
 
     sendJson(res, 200, {
