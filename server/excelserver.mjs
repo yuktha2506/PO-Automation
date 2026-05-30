@@ -1,6 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import multer from 'multer';
@@ -15,6 +16,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STORAGE_DIR = path.resolve(__dirname, '..', 'storage');
 const MASTER_FILE_PATH = path.join(STORAGE_DIR, 'po_master.xlsx');
 const SHEET_NAME = 'PO Tracker';
+const transientDownloads = new Map();
+const TRANSIENT_DOWNLOAD_TTL_MS = 5 * 60 * 1000;
 const PO_TRACKER_HEADERS = [
   "Sl No", "Category", "Requestor Name", "PR Number", "PR Date",
   "Purchase Order No", "PO Date", "Vendor Name", "Description",
@@ -667,6 +670,18 @@ const getOutputPaths = (mode) => {
   };
 };
 
+const registerTransientDownload = (buffer) => {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const filename = `po_export_${timestamp}_${randomUUID()}.xlsx`;
+  const timeout = setTimeout(() => {
+    transientDownloads.delete(filename);
+  }, TRANSIENT_DOWNLOAD_TTL_MS);
+
+  if (typeof timeout.unref === 'function') timeout.unref();
+  transientDownloads.set(filename, { buffer, timeout });
+  return filename;
+};
+
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
 const sendJson = (res, statusCode, payload) => {
@@ -1036,6 +1051,18 @@ const server = http.createServer(async (req, res) => {
     try {
       const filename = path.basename(decodeURIComponent(requestUrl.pathname.replace('/api/download/', '')));
       if (!filename) return sendJson(res, 400, { success: false, error: 'Invalid filename.' });
+      const transientDownload = transientDownloads.get(filename);
+      if (transientDownload) {
+        clearTimeout(transientDownload.timeout);
+        transientDownloads.delete(filename);
+        res.writeHead(200, {
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition': `attachment; filename="${filename}"`
+        });
+        res.end(transientDownload.buffer);
+        return;
+      }
+
       const filePath = path.join(STORAGE_DIR, filename);
       if (!fs.existsSync(filePath)) return sendJson(res, 404, { success: false, error: 'File not found.' });
       res.writeHead(200, {
@@ -1180,24 +1207,30 @@ const server = http.createServer(async (req, res) => {
 
     const outputBuffer = Buffer.from(await workbook.xlsx.writeBuffer());
 
-    await ensureStorageDir();
-    try {
-      await fs.promises.writeFile(outputPath, outputBuffer);
-    } catch (writeError) {
-      const code = writeError && typeof writeError === 'object' ? writeError.code : '';
-      if (mode !== 'existing' || (code !== 'EBUSY' && code !== 'EPERM')) {
-        throw writeError;
-      }
+    if (mode === 'existing') {
+      await ensureStorageDir();
+      try {
+        await fs.promises.writeFile(outputPath, outputBuffer);
+      } catch (writeError) {
+        const code = writeError && typeof writeError === 'object' ? writeError.code : '';
+        if (code !== 'EBUSY' && code !== 'EPERM') {
+          throw writeError;
+        }
 
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      outputFilename = `po_master_updated_${timestamp}.xlsx`;
-      outputPath = path.join(STORAGE_DIR, outputFilename);
-      console.warn(
-        `Master Excel is locked (${code}). Saving updated existing workbook as ${outputFilename}.`
-      );
-      await fs.promises.writeFile(outputPath, outputBuffer);
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        outputFilename = `po_master_updated_${timestamp}.xlsx`;
+        outputPath = path.join(STORAGE_DIR, outputFilename);
+        console.warn(
+          `Master Excel is locked (${code}). Saving updated existing workbook as ${outputFilename}.`
+        );
+        await fs.promises.writeFile(outputPath, outputBuffer);
+      }
+      console.log('Existing Excel export saved:', { outputPath, outputFilename });
+    } else {
+      outputFilename = registerTransientDownload(outputBuffer);
+      outputPath = null;
+      console.log('New Excel export prepared in memory:', { outputFilename });
     }
-    console.log('Excel export saved:', { outputPath, outputFilename });
 
     sendJson(res, 200, {
       success: true,
